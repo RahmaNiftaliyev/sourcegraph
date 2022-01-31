@@ -160,7 +160,7 @@ export const StartSearching: React.FunctionComponent<StartSearching> = ({
                             <h4 className="m-0">Invite by sending a link</h4>
                         </div>
                     </header>
-                    <CopyableText className="mb-3 ml-3 mr-3 flex-1" text={inviteURL} size={inviteURL.length} />
+                    <CopyableText className="mb-3 ml-3 mr-3 flex-1" text={inviteURL} flex={true} size={inviteURL.length} />
                 </div>
             </div>
             <div className={classNames(className, 'mx-2')}>
