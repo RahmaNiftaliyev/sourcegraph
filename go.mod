@@ -170,11 +170,11 @@ require (
 	go.uber.org/automaxprocs v1.5.1
 	go.uber.org/ratelimit v0.2.0
 	go.uber.org/zap v1.23.0
-	golang.org/x/crypto v0.1.0
-	golang.org/x/net v0.1.0
+	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
+	golang.org/x/net v0.2.0
 	golang.org/x/oauth2 v0.1.0
 	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.1.0
+	golang.org/x/sys v0.3.0
 	golang.org/x/time v0.1.0
 	golang.org/x/tools v0.2.0
 	gonum.org/v1/gonum v0.11.0
@@ -197,7 +197,7 @@ require github.com/XSAM/otelsql v0.15.0
 
 require (
 	cloud.google.com/go/compute/metadata v0.1.1 // indirect
-	github.com/cloudflare/circl v1.2.0 // indirect
+	github.com/cloudflare/circl v1.3.3 // indirect
 	github.com/cockroachdb/apd/v2 v2.0.1 // indirect
 	github.com/dennwc/varint v1.0.0 // indirect
 	github.com/emicklei/go-restful v2.16.0+incompatible // indirect
@@ -430,7 +430,7 @@ require (
 	go.opentelemetry.io/proto/otlp v0.19.0
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/mod v0.6.0
-	golang.org/x/term v0.1.0 // indirect
+	golang.org/x/term v0.2.0 // indirect
 	golang.org/x/text v0.4.0
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
