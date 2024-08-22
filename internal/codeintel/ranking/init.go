@@ -1,93 +1,83 @@
 package ranking
 
 import (
-	"context"
-	"os"
-
-	"cloud.google.com/go/storage"
-	"github.com/sourcegraph/log"
-	"google.golang.org/api/option"
-
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background/coordinator"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background/exporter"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background/janitor"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background/mapper"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/background/reducer"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/lsifstore"
 	"github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/store"
-	"github.com/sourcegraph/sourcegraph/internal/codeintel/uploads"
+	codeintelshared "github.com/sourcegraph/sourcegraph/internal/codeintel/shared"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
-	"github.com/sourcegraph/sourcegraph/internal/env"
-	"github.com/sourcegraph/sourcegraph/internal/memo"
+	"github.com/sourcegraph/sourcegraph/internal/goroutine"
 	"github.com/sourcegraph/sourcegraph/internal/observation"
-	"github.com/sourcegraph/sourcegraph/internal/symbols"
 )
 
-// GetService creates or returns an already-initialized ranking service.
-// If the service is not yet initialized, it will use the provided dependencies.
-func GetService(
+func NewService(
+	observationCtx *observation.Context,
 	db database.DB,
-	uploadSvc *uploads.Service,
-	gitserverClient GitserverClient,
+	codeIntelDB codeintelshared.CodeIntelDB,
 ) *Service {
-	svc, _ := initServiceMemo.Init(serviceDependencies{
-		db,
-		uploadSvc,
-		gitserverClient,
-	})
-
-	return svc
-}
-
-type serviceDependencies struct {
-	db              database.DB
-	uploadsService  *uploads.Service
-	gitserverClient GitserverClient
+	return newService(
+		scopedContext("service", observationCtx),
+		store.New(scopedContext("store", observationCtx), db),
+		lsifstore.New(scopedContext("lsifstore", observationCtx), codeIntelDB),
+		conf.DefaultClient(),
+	)
 }
 
 var (
-	resultsBucketName             = env.Get("CODEINTEL_RANKING_RESULTS_BUCKET", "lsif-pagerank-experiments", "The GCS bucket.")
-	resultsGraphKey               = env.Get("CODEINTEL_RANKING_RESULTS_GRAPH_KEY", "dev", "An identifier of the graph export. Change to start a new import from the configured bucket.")
-	resultsObjectKeyPrefix        = env.Get("CODEINTEL_RANKING_RESULTS_OBJECT_KEY_PREFIX", "ranks/", "The object key prefix that holds results of the last PageRank batch job.")
-	resultsBucketCredentialsFile  = env.Get("CODEINTEL_RANKING_RESULTS_GOOGLE_APPLICATION_CREDENTIALS_FILE", "", "The path to a service account key file with access to GCS.")
-	exportObjectKeyPrefix         = env.Get("CODEINTEL_RANKING_DEVELOPMENT_EXPORT_OBJECT_KEY_PREFIX", "", "The object key prefix that should be used for development exports.")
-	developmentExportRepositories = env.Get("CODEINTEL_RANKING_DEVELOPMENT_EXPORT_REPOSITORIES", "github.com/sourcegraph/sourcegraph,github.com/sourcegraph/lsif-go", "Comma-separated list of repositories whose ranks should be exported for development.")
-
-	// Backdoor tuning for dotcom
-	mergeBatchSize = env.MustGetInt("CODEINTEL_RANKING_MERGE_BATCH_SIZE", 5000, "")
+	ExporterConfigInst    = &exporter.Config{}
+	CoordinatorConfigInst = &coordinator.Config{}
+	MapperConfigInst      = &mapper.Config{}
+	ReducerConfigInst     = &reducer.Config{}
+	JanitorConfigInst     = &janitor.Config{}
 )
 
-var initServiceMemo = memo.NewMemoizedConstructorWithArg(func(deps serviceDependencies) (*Service, error) {
-	if resultsGraphKey == "" {
-		// The codenav default
-		resultsGraphKey = "dev"
-	}
+func NewSymbolExporter(observationCtx *observation.Context, rankingService *Service) goroutine.BackgroundRoutine {
+	return background.NewSymbolExporter(
+		scopedContext("exporter", observationCtx),
+		rankingService.store,
+		rankingService.lsifstore,
+		ExporterConfigInst,
+	)
+}
 
-	resultsBucket := func() *storage.BucketHandle {
-		if resultsBucketCredentialsFile == "" && os.Getenv("ENABLE_EXPERIMENTAL_RANKING") == "" {
-			return nil
-		}
+func NewCoordinator(observationCtx *observation.Context, rankingService *Service) goroutine.BackgroundRoutine {
+	return background.NewCoordinator(
+		scopedContext("coordinator", observationCtx),
+		rankingService.store,
+		CoordinatorConfigInst,
+	)
+}
 
-		var opts []option.ClientOption
-		if resultsBucketCredentialsFile != "" {
-			opts = append(opts, option.WithCredentialsFile(resultsBucketCredentialsFile))
-		}
+func NewMapper(observationCtx *observation.Context, rankingService *Service) []goroutine.BackgroundRoutine {
+	return background.NewMapper(
+		scopedContext("mapper", observationCtx),
+		rankingService.store,
+		MapperConfigInst,
+	)
+}
 
-		client, err := storage.NewClient(context.Background(), opts...)
-		if err != nil {
-			log.Scoped("ranking", "").Error("failed to create storage client", log.Error(err))
-			return nil
-		}
+func NewReducer(observationCtx *observation.Context, rankingService *Service) goroutine.BackgroundRoutine {
+	return background.NewReducer(
+		scopedContext("reducer", observationCtx),
+		rankingService.store,
+		ReducerConfigInst,
+	)
+}
 
-		return client.Bucket(resultsBucketName)
-	}()
+func NewSymbolJanitor(observationCtx *observation.Context, rankingService *Service) []goroutine.BackgroundRoutine {
+	return background.NewSymbolJanitor(
+		scopedContext("janitor", observationCtx),
+		rankingService.store,
+		JanitorConfigInst,
+	)
+}
 
-	return newService(
-		store.New(deps.db, scopedContext("store")),
-		deps.uploadsService,
-		deps.gitserverClient,
-		symbols.DefaultClient,
-		conf.DefaultClient(),
-		resultsBucket,
-		scopedContext("service"),
-	), nil
-})
-
-func scopedContext(component string) *observation.Context {
-	return observation.ScopedContext("codeintel", "ranking", component)
+func scopedContext(component string, observationCtx *observation.Context) *observation.Context {
+	return observation.ScopedContext("codeintel", "ranking", component, observationCtx)
 }

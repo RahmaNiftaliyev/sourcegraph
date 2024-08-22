@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/sourcegraph/sourcegraph/internal/httpcli"
@@ -45,8 +46,12 @@ func (token *OAuthBearerToken) Refresh(ctx context.Context, cli httpcli.Doer) er
 }
 
 func (token *OAuthBearerToken) NeedsRefresh() bool {
-	// Refresh if the current time falls within the buffer period to expiry.
-	return time.Until(token.Expiry) <= time.Duration(token.NeedsRefreshBuffer)*time.Minute
+	// If there is no refresh token, always return false since we can't refresh
+	if token.RefreshToken == "" {
+		return false
+	}
+	// Refresh if the current time falls within the buffer period to expiry, and is not zero
+	return !token.Expiry.IsZero() && (time.Until(token.Expiry) <= time.Duration(token.NeedsRefreshBuffer)*time.Minute)
 }
 
 var _ Authenticator = &OAuthBearerToken{}
@@ -68,6 +73,11 @@ func (token *OAuthBearerToken) WithToken(newToken string) *OAuthBearerToken {
 	}
 }
 
+// SetURLUser authenticates the provided URL by setting the User field.
+func (token *OAuthBearerToken) SetURLUser(u *url.URL) {
+	u.User = url.UserPassword("oauth2", token.Token)
+}
+
 // OAuthBearerTokenWithSSH implements OAuth Bearer Token authentication for extsvc
 // clients and holds an additional RSA keypair.
 type OAuthBearerTokenWithSSH struct {
@@ -78,8 +88,10 @@ type OAuthBearerTokenWithSSH struct {
 	Passphrase string
 }
 
-var _ Authenticator = &OAuthBearerTokenWithSSH{}
-var _ AuthenticatorWithSSH = &OAuthBearerTokenWithSSH{}
+var (
+	_ Authenticator        = &OAuthBearerTokenWithSSH{}
+	_ AuthenticatorWithSSH = &OAuthBearerTokenWithSSH{}
+)
 
 func (token *OAuthBearerTokenWithSSH) SSHPrivateKey() (privateKey, passphrase string) {
 	return token.PrivateKey, token.Passphrase

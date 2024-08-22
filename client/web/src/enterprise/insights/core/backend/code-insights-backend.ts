@@ -1,25 +1,17 @@
-import { Observable } from 'rxjs'
+import type { Observable } from 'rxjs'
 
-import { Insight, InsightsDashboardOwner } from '../types'
+import type { Insight, InsightsDashboardOwner } from '../types'
 
-import {
+import type {
     AssignInsightsToDashboardInput,
     DashboardCreateInput,
     DashboardCreateResult,
     DashboardDeleteInput,
     DashboardUpdateInput,
     DashboardUpdateResult,
-    FindInsightByNameInput,
-    GetBuiltInsightInput,
-    GetLangStatsInsightContentInput,
     InsightCreateInput,
     InsightUpdateInput,
     RemoveInsightFromDashboardInput,
-    CategoricalChartContent,
-    SeriesChartContent,
-    InsightContent,
-    InsightPreviewSettings,
-    BackendInsightDatum,
 } from './code-insights-backend-types'
 
 /**
@@ -58,10 +50,6 @@ export interface CodeInsightsBackend {
      */
     getInsightById: (id: string) => Observable<Insight | null>
 
-    findInsightByName: (input: FindInsightByNameInput) => Observable<Insight | null>
-
-    hasInsights: (insightsCount: number) => Observable<boolean>
-
     getActiveInsightsCount: (insightsCount: number) => Observable<number>
 
     createInsight: (input: InsightCreateInput) => Observable<unknown>
@@ -71,27 +59,4 @@ export interface CodeInsightsBackend {
     deleteInsight: (insightId: string) => Observable<unknown>
 
     removeInsightFromDashboard: (input: RemoveInsightFromDashboardInput) => Observable<unknown>
-
-    /**
-     * Returns extension like built-in insight that is fetched via frontend
-     * network utils to Sourcegraph search API.
-     */
-    getBuiltInInsightData: (input: GetBuiltInsightInput) => Observable<InsightContent<unknown>>
-
-    /**
-     * Returns content for the code stats insight live preview chart.
-     */
-    getLangStatsInsightContent: (input: GetLangStatsInsightContentInput) => Promise<CategoricalChartContent<unknown>>
-
-    getInsightPreviewContent: (input: InsightPreviewSettings) => Promise<SeriesChartContent<BackendInsightDatum>>
-
-    /**
-     * Used for the dynamic insight example on the insights landing page.
-     * Attempts to return a repository that contains the string "TODO"
-     * If a repository is not found it then returns the first repository it finds.
-     *
-     * Under the hood this is calling the search API with "select:repo TODO count:1"
-     * or "select:repo count:1" if no repository is found with the string "TODO"
-     */
-    getFirstExampleRepository: () => Observable<string>
 }

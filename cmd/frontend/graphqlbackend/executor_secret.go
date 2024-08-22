@@ -9,7 +9,6 @@ import (
 	"github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
 
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/graphqlbackend/graphqlutil"
 	"github.com/sourcegraph/sourcegraph/internal/database"
 	"github.com/sourcegraph/sourcegraph/internal/encryption/keyring"
 	"github.com/sourcegraph/sourcegraph/internal/errcode"
@@ -65,12 +64,16 @@ type executorSecretResolver struct {
 }
 
 func (r *executorSecretResolver) ID() graphql.ID {
-	return marshalExecutorSecretID(ExecutorSecretScope(strings.ToUpper(r.secret.Scope)), r.secret.ID)
+	return marshalExecutorSecretID(ExecutorSecretScope(strings.ToUpper(string(r.secret.Scope))), r.secret.ID)
 }
 
 func (r *executorSecretResolver) Key() string { return r.secret.Key }
 
-func (r *executorSecretResolver) Scope() string { return strings.ToUpper(r.secret.Scope) }
+func (r *executorSecretResolver) Scope() string { return strings.ToUpper(string(r.secret.Scope)) }
+
+func (r *executorSecretResolver) OverwritesGlobalSecret() bool {
+	return r.secret.OverwritesGlobalSecret
+}
 
 func (r *executorSecretResolver) Namespace(ctx context.Context) (*NamespaceResolver, error) {
 	if r.secret.NamespaceUserID != 0 {
@@ -119,7 +122,7 @@ func (r *executorSecretResolver) AccessLogs(args ExecutorSecretAccessLogListArgs
 	// so access to the access logs is acceptable as well.
 	limit := &database.LimitOffset{Limit: int(args.First)}
 	if args.After != nil {
-		offset, err := graphqlutil.DecodeIntCursor(args.After)
+		offset, err := gqlutil.DecodeIntCursor(args.After)
 		if err != nil {
 			return nil, err
 		}

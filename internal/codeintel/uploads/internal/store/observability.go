@@ -12,13 +12,16 @@ type operations struct {
 	list *observation.Operation
 
 	// Commits
-	getStaleSourcedCommits    *observation.Operation
-	deleteSourcedCommits      *observation.Operation
-	updateSourcedCommits      *observation.Operation
-	getCommitsVisibleToUpload *observation.Operation
-	getOldestCommitDate       *observation.Operation
-	getCommitGraphMetadata    *observation.Operation
-	hasCommit                 *observation.Operation
+	getStaleSourcedCommits              *observation.Operation
+	deleteSourcedCommits                *observation.Operation
+	updateSourcedCommits                *observation.Operation
+	getCommitsVisibleToUpload           *observation.Operation
+	getCommitAndDateForOldestUpload     *observation.Operation
+	getCommitGraphMetadata              *observation.Operation
+	hasCommit                           *observation.Operation
+	repositoryIDsWithErrors             *observation.Operation
+	numRepositoriesWithCodeIntelligence *observation.Operation
+	getRecentAutoIndexJobsSummary       *observation.Operation
 
 	// Repositories
 	getRepositoriesForIndexScan             *observation.Operation
@@ -33,6 +36,7 @@ type operations struct {
 	hasRepository                           *observation.Operation
 
 	// Uploads
+	getIndexers                          *observation.Operation
 	getUploads                           *observation.Operation
 	getUploadByID                        *observation.Operation
 	getUploadsByIDs                      *observation.Operation
@@ -57,12 +61,12 @@ type operations struct {
 	markFailed                           *observation.Operation
 	deleteUploads                        *observation.Operation
 
-	// Dumps
-	findClosestDumps                   *observation.Operation
-	findClosestDumpsFromGraphFragment  *observation.Operation
-	getDumpsWithDefinitionsForMonikers *observation.Operation
-	getDumpsByIDs                      *observation.Operation
-	deleteOverlappingDumps             *observation.Operation
+	// Completed uploads
+	findClosestCompletedUploads                   *observation.Operation
+	findClosestCompletedUploadsFromGraphFragment  *observation.Operation
+	getCompletedUploadsWithDefinitionsForMonikers *observation.Operation
+	getCompletedUploadsByIDs                      *observation.Operation
+	deleteOverlappingCompletedUploads             *observation.Operation
 
 	// Packages
 	updatePackages *observation.Operation
@@ -76,21 +80,39 @@ type operations struct {
 
 	// Dependencies
 	insertDependencySyncingJob *observation.Operation
+
+	reindexUploads                 *observation.Operation
+	reindexUploadByID              *observation.Operation
+	deleteIndexesWithoutRepository *observation.Operation
+
+	getAutoIndexJobs           *observation.Operation
+	getAutoIndexJobByID        *observation.Operation
+	getAutoIndexJobsByIDs      *observation.Operation
+	deleteAutoIndexJobByID     *observation.Operation
+	deleteAutoIndexJobs        *observation.Operation
+	setRerunAutoIndexJobByID   *observation.Operation
+	setRerunAutoIndexJobs      *observation.Operation
+	processStaleSourcedCommits *observation.Operation
+	expireFailedRecords        *observation.Operation
 }
 
-func newOperations(observationContext *observation.Context) *operations {
-	metrics := metrics.NewREDMetrics(
-		observationContext.Registerer,
-		"codeintel_uploads_store",
-		metrics.WithLabels("op"),
-		metrics.WithCountHelp("Total number of method invocations."),
-	)
+var m = new(metrics.SingletonREDMetrics)
+
+func newOperations(observationCtx *observation.Context) *operations {
+	redMetrics := m.Get(func() *metrics.REDMetrics {
+		return metrics.NewREDMetrics(
+			observationCtx.Registerer,
+			"codeintel_uploads_store",
+			metrics.WithLabels("op"),
+			metrics.WithCountHelp("Total number of method invocations."),
+		)
+	})
 
 	op := func(name string) *observation.Operation {
-		return observationContext.Operation(observation.Op{
+		return observationCtx.Operation(observation.Op{
 			Name:              fmt.Sprintf("codeintel.uploads.store.%s", name),
 			MetricLabelValues: []string{name},
-			Metrics:           metrics,
+			Metrics:           redMetrics,
 		})
 	}
 
@@ -99,13 +121,13 @@ func newOperations(observationContext *observation.Context) *operations {
 		list: op("List"),
 
 		// Commits
-		getCommitsVisibleToUpload: op("CommitsVisibleToUploads"),
-		getOldestCommitDate:       op("GetOldestCommitDate"),
-		getStaleSourcedCommits:    op("GetStaleSourcedCommits"),
-		getCommitGraphMetadata:    op("GetCommitGraphMetadata"),
-		deleteSourcedCommits:      op("DeleteSourcedCommits"),
-		updateSourcedCommits:      op("UpdateSourcedCommits"),
-		hasCommit:                 op("HasCommit"),
+		getCommitsVisibleToUpload:       op("CommitsVisibleToUploads"),
+		getCommitAndDateForOldestUpload: op("GetCommitAndDateForOldestUpload"),
+		getStaleSourcedCommits:          op("GetStaleSourcedCommits"),
+		getCommitGraphMetadata:          op("GetCommitGraphMetadata"),
+		deleteSourcedCommits:            op("DeleteSourcedCommits"),
+		updateSourcedCommits:            op("UpdateSourcedCommits"),
+		hasCommit:                       op("HasCommit"),
 
 		// Repositories
 		getRepositoriesForIndexScan:             op("GetRepositoriesForIndexScan"),
@@ -120,6 +142,7 @@ func newOperations(observationContext *observation.Context) *operations {
 		hasRepository:                           op("HasRepository"),
 
 		// Uploads
+		getIndexers:                          op("GetIndexers"),
 		getUploads:                           op("GetUploads"),
 		getUploadByID:                        op("GetUploadByID"),
 		getUploadsByIDs:                      op("GetUploadsByIDs"),
@@ -145,12 +168,12 @@ func newOperations(observationContext *observation.Context) *operations {
 		persistNearestUploadsLinks: op("persistNearestUploadsLinks"),
 		persistUploadsVisibleAtTip: op("persistUploadsVisibleAtTip"),
 
-		// Dumps
-		findClosestDumps:                   op("FindClosestDumps"),
-		findClosestDumpsFromGraphFragment:  op("FindClosestDumpsFromGraphFragment"),
-		getDumpsWithDefinitionsForMonikers: op("GetUploadsWithDefinitionsForMonikers"),
-		getDumpsByIDs:                      op("GetDumpsByIDs"),
-		deleteOverlappingDumps:             op("DeleteOverlappingDumps"),
+		// Completed uploads
+		findClosestCompletedUploads:                   op("FindClosestCompletedUploads"),
+		findClosestCompletedUploadsFromGraphFragment:  op("FindClosestCompletedUploadsFromGraphFragment"),
+		getCompletedUploadsWithDefinitionsForMonikers: op("GetUploadsWithDefinitionsForMonikers"),
+		getCompletedUploadsByIDs:                      op("GetCompletedUploadsByIDs"),
+		deleteOverlappingCompletedUploads:             op("DeleteOverlappingCompletedUploads"),
 
 		// Packages
 		updatePackages: op("UpdatePackages"),
@@ -164,5 +187,22 @@ func newOperations(observationContext *observation.Context) *operations {
 
 		// Dependencies
 		insertDependencySyncingJob: op("InsertDependencySyncingJob"),
+
+		reindexUploads:                 op("ReindexUploads"),
+		reindexUploadByID:              op("ReindexUploadByID"),
+		deleteIndexesWithoutRepository: op("DeleteAutoIndexJobsWithoutRepository"),
+
+		getAutoIndexJobs:                    op("GetAutoIndexJobs"),
+		getAutoIndexJobByID:                 op("GetAutoIndexJobByID"),
+		getAutoIndexJobsByIDs:               op("GetAutoIndexJobsByIDs"),
+		deleteAutoIndexJobByID:              op("DeleteAutoIndexJobByID"),
+		deleteAutoIndexJobs:                 op("DeleteAutoIndexJobs"),
+		setRerunAutoIndexJobByID:            op("SetRerunAutoIndexJobByID"),
+		setRerunAutoIndexJobs:               op("SetRerunAutoIndexJobs"),
+		processStaleSourcedCommits:          op("ProcessStaleSourcedCommits"),
+		expireFailedRecords:                 op("ExpireFailedRecords"),
+		repositoryIDsWithErrors:             op("RepositoryIDsWithErrors"),
+		numRepositoriesWithCodeIntelligence: op("NumRepositoriesWithCodeIntelligence"),
+		getRecentAutoIndexJobsSummary:       op("GetRecentAutoIndexJobsSummary"),
 	}
 }

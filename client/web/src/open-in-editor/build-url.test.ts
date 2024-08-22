@@ -1,8 +1,10 @@
+import { describe, expect, it } from 'vitest'
+
 import { ExternalServiceKind } from '../graphql-operations'
 import { parseBrowserRepoURL } from '../util/url'
 
 import { buildEditorUrl, buildRepoBaseNameAndPath } from './build-url'
-import { EditorSettings } from './editor-settings'
+import type { EditorSettings } from './editor-settings'
 
 function buildSettings(props: EditorSettings = {}): EditorSettings {
     return {
@@ -13,6 +15,15 @@ function buildSettings(props: EditorSettings = {}): EditorSettings {
 }
 
 describe('buildRepoBaseNameAndPath tests', () => {
+    it('builds the correct string for "repositoryPathPattern": "{nameWithOwner}" config', () => {
+        const url = 'https://sourcegraph.com/sourcegraph/sourcegraph/-/blob/tsconfig.json'
+        const { repoName, filePath } = parseBrowserRepoURL(url)
+
+        const result = buildRepoBaseNameAndPath(repoName, ExternalServiceKind.GITHUB, filePath)
+
+        expect(result).toEqual('sourcegraph/tsconfig.json')
+    })
+
     it('builds the correct string for GitHub URLs', () => {
         const url = 'https://sourcegraph.com/github.com/sourcegraph/sourcegraph/-/blob/tsconfig.json'
         const { repoName, filePath } = parseBrowserRepoURL(url)
@@ -299,7 +310,7 @@ describe('buildEditorUrl tests', () => {
         it('builds the right "Learn more" URL', () => {
             expect(() => {
                 buildEditorUrl(defaultPath, defaultPosition, { editorIds: ['vscode'] }, baseUrl)
-            }).toThrow(/https:\/\/docs\.sourcegraph\.com\/integration\/open_in_editor/)
+            }).toThrow(/https:\/\/sourcegraph\.com\/docs\/integration\/open_in_editor/)
         })
     })
 })

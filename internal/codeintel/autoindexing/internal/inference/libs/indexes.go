@@ -16,22 +16,24 @@ var Indexes = indexesAPI{}
 type indexesAPI struct{}
 
 var defaultIndexers = map[string]string{
-	"clang":      "sourcegraph/lsif-clang",
-	"go":         "sourcegraph/lsif-go",
+	"go":         "sourcegraph/scip-go",
 	"java":       "sourcegraph/scip-java",
 	"python":     "sourcegraph/scip-python",
-	"rust":       "sourcegraph/lsif-rust",
+	"rust":       "sourcegraph/scip-rust",
 	"typescript": "sourcegraph/scip-typescript",
+	"ruby":       "sourcegraph/scip-ruby",
+	"dotnet":     "sourcegraph/scip-dotnet",
 }
 
 // To update, run `DOCKER_USER=... DOCKER_PASS=... ./update-shas.sh`
 var defaultIndexerSHAs = map[string]string{
-	"sourcegraph/lsif-clang":      "sha256:5ef2334ac9d58f1f947651812aa8d8ba0ed584913f2429cc9952cb25f94976d8",
-	"sourcegraph/lsif-go":         "sha256:253c991fdd8b118afadcfbe6f7a6d03ca91c44fd2860dbe8a9fd69c93c6025f6",
-	"sourcegraph/lsif-rust":       "sha256:83cb769788987eb52f21a18b62d51ebb67c9436e1b0d2e99904c70fef424f9d1",
-	"sourcegraph/scip-java":       "sha256:eb3996bdc8ab3a56600e7d647bc1ef72f3db8cfffc2026550095a0af7bb762bd",
-	"sourcegraph/scip-python":     "sha256:5049c4598d03af542bde5e1254a17fa6d1eb794c1bdd14d0162fb39c604581b4",
-	"sourcegraph/scip-typescript": "sha256:4184c6a771037d854e23323db2c8a65947029c93401b696f3b5281fff5c3cbe9",
+	"sourcegraph/scip-go":         "sha256:e6ca2d4b55bd1379631d45faab169fc32dc6da2c1939ed11a700261ac4c4d26f",
+	"sourcegraph/scip-rust":       "sha256:adf0047fc3050ba4f7be71302b42c74b49901f38fb40916d94ac5fc9181ac078",
+	"sourcegraph/scip-java":       "sha256:3de6ba2221880e2ff3a7dcb9045e6c3e86f6079d6c8dc2f913a2ca8427605c69",
+	"sourcegraph/scip-python":     "sha256:e3c13f0cadca78098439c541d19a72c21672a3263e22aa706760d941581e068d",
+	"sourcegraph/scip-typescript": "sha256:3df8b36a2ad4e073415bfbeaedf38b3cfff3e697614c8f578299f470d140c2c8",
+	"sourcegraph/scip-ruby":       "sha256:99b1a1adcb1ec1b6e92956f5817dfc6dfc9940f962b999685954b2ba052e1a7b",
+	"sourcegraph/scip-dotnet":     "sha256:1d8a590edfb3834020fceedacac6608811dd31fcba9092426140093876d8d52e",
 }
 
 func DefaultIndexerForLang(language string) (string, bool) {

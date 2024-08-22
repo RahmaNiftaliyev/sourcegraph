@@ -3,6 +3,7 @@
 # Variables:
 #
 # - $JAEGER_HOST
+# - $JAEGER_OTLP_GRPC_PORT
 
 receivers:
   otlp:
@@ -11,15 +12,14 @@ receivers:
       http: # port 4318
 
 exporters:
-  jaeger:
-    # Default Jaeger GRPC server
-    endpoint: "$JAEGER_HOST:14250"
+  otlp/jaeger:
+    endpoint: "${JAEGER_HOST}:${JAEGER_OTLP_GRPC_PORT}"
     tls:
       insecure: true
 
 extensions:
   health_check:
-    port: 13133
+    endpoint: ":13133"
   zpages:
    endpoint: ":55679"
 
@@ -29,7 +29,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [tail_sampling]
-      exporters: [jaeger]
+      exporters: [otlp/jaeger]
 
 processors:
   tail_sampling:
@@ -39,7 +39,7 @@ processors:
     num_traces: 50000 # default value = 50000
     # Expected number of new traces (helps in allocating data structures)
     expected_new_traces_per_sec: 10 # default value = 0
-    # Recommended reading to understand how the policies are applied: 
+    # Recommended reading to understand how the policies are applied:
     # https://sourcegraph.com/github.com/open-telemetry/opentelemetry-collector-contrib@71dd19d2e59cd1f8aa9844461089d5c17efaa0ca/-/blob/processor/tailsamplingprocessor/processor.go?L214
     policies:
       [

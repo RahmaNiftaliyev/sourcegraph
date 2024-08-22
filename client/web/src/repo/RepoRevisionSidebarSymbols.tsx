@@ -1,64 +1,27 @@
-import * as React from 'react'
-import { useState } from 'react'
+import React, { Suspense, useMemo, useState } from 'react'
 
 import classNames from 'classnames'
-import * as H from 'history'
-import { sortBy } from 'lodash'
-import { entries, escapeRegExp, flatMap, flow, groupBy, isEqual, map } from 'lodash/fp'
-import { NavLink, useLocation } from 'react-router-dom'
+import { escapeRegExp, groupBy } from 'lodash'
 
-import { gql, dataOrThrowErrors } from '@sourcegraph/http-client'
-import { SymbolIcon } from '@sourcegraph/shared/src/symbols/SymbolIcon'
-import { RevisionSpec } from '@sourcegraph/shared/src/util/url'
-import { useDebounce } from '@sourcegraph/wildcard'
+import { logger } from '@sourcegraph/common'
+import { dataOrThrowErrors, gql } from '@sourcegraph/http-client'
+import type { RevisionSpec } from '@sourcegraph/shared/src/util/url'
+import { Alert, ErrorMessage, useDebounce } from '@sourcegraph/wildcard'
 
-import { useConnection } from '../components/FilteredConnection/hooks/useConnection'
+import { useShowMorePagination } from '../components/FilteredConnection/hooks/useShowMorePagination'
 import {
-    ConnectionForm,
     ConnectionContainer,
+    ConnectionForm,
     ConnectionLoading,
     ConnectionSummary,
-    ConnectionError,
-    SummaryContainer,
     ShowMoreButton,
+    SummaryContainer,
 } from '../components/FilteredConnection/ui'
-import { Scalars, SymbolKind, SymbolNodeFields, SymbolsResult, SymbolsVariables } from '../graphql-operations'
-import { parseBrowserRepoURL } from '../util/url'
+import type { Scalars, SymbolNodeFields, SymbolsResult, SymbolsVariables } from '../graphql-operations'
+
+import { RepoRevisionSidebarSymbolTree } from './RepoRevisionSidebarSymbolTree'
 
 import styles from './RepoRevisionSidebarSymbols.module.scss'
-
-interface SymbolNodeProps {
-    node: SymbolNodeFields
-    onHandleClick: () => void
-    isActive: boolean
-    style: React.CSSProperties
-}
-
-const SymbolNode: React.FunctionComponent<React.PropsWithChildren<SymbolNodeProps>> = ({
-    node,
-    onHandleClick,
-    isActive,
-    style,
-}) => {
-    const isActiveFunc = (): boolean => isActive
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <li className={styles.repoRevisionSidebarSymbolsNode} style={style}>
-            <NavLink
-                to={node.url}
-                isActive={isActiveFunc}
-                className={classNames('test-symbol-link', styles.link)}
-                activeClassName={styles.linkActive}
-                onClick={onHandleClick}
-            >
-                <SymbolIcon kind={node.kind} className="mr-1" />
-                <span className={styles.name} data-testid="symbol-name">
-                    {node.name}
-                </span>
-            </NavLink>
-        </li>
-    )
-}
 
 export const SYMBOLS_QUERY = gql`
     query Symbols($repo: ID!, $revision: String!, $first: Int, $query: String, $includePatterns: [String!]) {
@@ -116,16 +79,21 @@ export interface RepoRevisionSidebarSymbolsProps extends Partial<RevisionSpec> {
     /** The path of the file or directory currently shown in the content area */
     activePath: string
     onHandleSymbolClick: () => void
+    focusKey?: string
 }
 
 export const RepoRevisionSidebarSymbols: React.FunctionComponent<
     React.PropsWithChildren<RepoRevisionSidebarSymbolsProps>
-> = ({ repoID, revision = '', activePath, onHandleSymbolClick }) => {
-    const location = useLocation()
+> = ({ repoID, revision = '', activePath, focusKey, onHandleSymbolClick }) => {
     const [searchValue, setSearchValue] = useState('')
     const query = useDebounce(searchValue, 200)
 
-    const { connection, error, loading, hasNextPage, fetchMore } = useConnection<
+    // URL is the most unique part we have about a symbol node. We use it
+    // instead of the index to avoid pointing to the wrong symbol when the data
+    // changes.
+    const [selectedSymbolUrl, setSelectedSymbolUrl] = useState<null | string>(null)
+
+    const { connection, error, loading, hasNextPage, fetchMore } = useShowMorePagination<
         SymbolsResult,
         SymbolsVariables,
         SymbolNodeFields
@@ -133,7 +101,6 @@ export const RepoRevisionSidebarSymbols: React.FunctionComponent<
         query: SYMBOLS_QUERY,
         variables: {
             query,
-            first: BATCH_COUNT,
             repo: repoID,
             revision,
             // `includePatterns` expects regexes, so first escape the path.
@@ -156,13 +123,13 @@ export const RepoRevisionSidebarSymbols: React.FunctionComponent<
         },
         options: {
             fetchPolicy: 'cache-first',
+            pageSize: BATCH_COUNT,
         },
     })
 
     const summary = connection && (
         <ConnectionSummary
             connection={connection}
-            first={BATCH_COUNT}
             noun="symbol"
             pluralNoun="symbols"
             hasNextPage={hasNextPage}
@@ -171,16 +138,13 @@ export const RepoRevisionSidebarSymbols: React.FunctionComponent<
         />
     )
 
-    const currentLocation = parseBrowserRepoURL(H.createPath(location))
-    const isSymbolActive = (symbolUrl: string): boolean => {
-        const symbolLocation = parseBrowserRepoURL(symbolUrl)
-        return (
-            currentLocation.repoName === symbolLocation.repoName &&
-            currentLocation.revision === symbolLocation.revision &&
-            currentLocation.filePath === symbolLocation.filePath &&
-            isEqual(currentLocation.position, symbolLocation.position)
-        )
-    }
+    const hierarchicalSymbols = useMemo<SymbolWithChildren[]>(
+        () =>
+            Object.values(groupBy(connection?.nodes ?? [], symbol => symbol.location.resource.path)).flatMap(symbols =>
+                hierarchyOf(symbols)
+            ),
+        [connection?.nodes]
+    )
 
     return (
         <ConnectionContainer className={classNames('h-100', styles.repoRevisionSidebarSymbols)} compact={true}>
@@ -196,30 +160,26 @@ export const RepoRevisionSidebarSymbols: React.FunctionComponent<
                     {query && summary}
                 </SummaryContainer>
             </div>
-            {error && <ConnectionError errors={[error.message]} compact={true} />}
-            {connection && (
-                <HierarchicalSymbols
-                    symbols={connection.nodes}
-                    render={args =>
-                        args.symbol.__typename === 'IntermediateSymbol' ? (
-                            // eslint-disable-next-line react/forbid-dom-props
-                            <li className={styles.repoRevisionSidebarSymbolsNode} style={padding(args.symbol)}>
-                                <span className={styles.link}>
-                                    <SymbolIcon kind={SymbolKind.UNKNOWN} className="mr-1" />
-                                    {args.symbol.name}
-                                </span>
-                            </li>
-                        ) : (
-                            <SymbolNode
-                                node={args.symbol}
-                                onHandleClick={onHandleSymbolClick}
-                                isActive={isSymbolActive(args.symbol.url)}
-                                style={padding(args.symbol)}
-                            />
-                        )
-                    }
-                />
+            {error && (
+                <Alert variant={error.message.includes('Estimated completion') ? 'info' : 'danger'}>
+                    <ErrorMessage error={error.message} />
+                </Alert>
             )}
+            {connection && !loading ? (
+                <Suspense fallback={<ConnectionLoading compact={true} />}>
+                    <RepoRevisionSidebarSymbolTree
+                        // We throw away the component state whenever the underlying query
+                        // data changes to avoid complicated bookkeeping in the tree
+                        // component.
+                        key={activePath + ':' + query}
+                        focusKey={focusKey}
+                        selectedSymbolUrl={selectedSymbolUrl}
+                        setSelectedSymbolUrl={setSelectedSymbolUrl}
+                        symbols={hierarchicalSymbols}
+                        onClick={onHandleSymbolClick}
+                    />
+                </Suspense>
+            ) : null}
             {loading && <ConnectionLoading compact={true} />}
             {!loading && connection && (
                 <SummaryContainer compact={true} className={styles.summaryContainer}>
@@ -231,75 +191,83 @@ export const RepoRevisionSidebarSymbols: React.FunctionComponent<
     )
 }
 
-interface HierarchicalSymbolsProps {
-    symbols: SymbolNodeFields[]
-    render: (props: { symbol: Sym }) => React.ReactElement
-}
-
-const HierarchicalSymbols: React.FunctionComponent<HierarchicalSymbolsProps> = props => (
-    <ul className={styles.hierarchicalSymbolsContainer}>
-        {flow(
-            groupBy<SymbolNodeFields>(symbol => symbol.location.resource.path),
-            entries,
-            flatMap(([, symbols]) => hierarchyOf(symbols)),
-            map(symbol => <props.render key={'url' in symbol ? symbol.url : fullName(symbol)} symbol={symbol} />)
-        )(props.symbols)}
-    </ul>
-)
-
-interface IntermediateSymbol {
-    __typename: 'IntermediateSymbol'
+// When searching symbols, results may contain only child symbols without their parents
+// (e.g. when searching for "bar", a class named "Foo" with a method named "bar" will
+// return "bar" as a result, and "bar" will say that "Foo" is its parent).
+// The placeholder symbols exist to show the hierarchy of the results, but these placeholders
+// are not interactive (cannot be clicked to navigate) and don't have any other information.
+export interface SymbolPlaceholder {
+    __typename: 'SymbolPlaceholder'
     name: string
-    language: string
 }
 
-type Sym = (SymbolNodeFields | IntermediateSymbol) & { containers: string[] }
+export type SymbolWithChildren = (SymbolNodeFields | SymbolPlaceholder) & { children: SymbolWithChildren[] }
 
-const hierarchyOf = (symbols: SymbolNodeFields[]): Sym[] => {
+const hierarchyOf = (symbols: SymbolNodeFields[]): SymbolWithChildren[] => {
     const fullNameToSymbol = new Map<string, SymbolNodeFields>(symbols.map(symbol => [fullName(symbol), symbol]))
-    const fullNameToSym = new Map<string, Sym>()
+    const fullNameToSymbolWithChildren = new Map<string, SymbolWithChildren>()
+    const topLevelSymbols: SymbolWithChildren[] = []
 
-    const visit = (fullName: string, language: string): string[] => {
+    const visit = (fullName: string): void => {
         if (fullName === '') {
-            return []
+            return
         }
 
-        const sym = fullNameToSym.get(fullName)
-        if (sym) {
-            return [...sym.containers, sym.name]
+        let symbol: SymbolNodeFields | SymbolPlaceholder | undefined = fullNameToSymbol.get(fullName)
+        if (!symbol) {
+            // Symbol doesn't exist, create placeholder at the top level and add current symbol to it.
+            // (This happens when running a search and the result is a child of a symbol that isn't in the result set.)
+            symbol = {
+                __typename: 'SymbolPlaceholder',
+                name: fullName.split('.').at(-1) || fullName,
+            }
         }
 
-        const symbol = fullNameToSymbol.get(fullName)
-        if (symbol) {
-            const containers = symbol.containerName ? visit(fullName.split('.').slice(0, -1).join('.'), language) : []
-            fullNameToSym.set(fullName, { ...symbol, containers })
-            return [...containers, symbol.name]
+        // symbolWithChildren might already exist if we've already visited a child of this symbol.
+        const symbolWithChildren = fullNameToSymbolWithChildren.get(fullName) || { ...symbol, children: [] }
+        fullNameToSymbolWithChildren.set(fullName, symbolWithChildren)
+
+        const parentFullName =
+            symbol.__typename === 'Symbol' ? symbol.containerName : fullName.split('.').slice(0, -1).join('.')
+        if (!parentFullName) {
+            // No parent, add to top-level
+            topLevelSymbols.push(symbolWithChildren)
+            return
         }
 
-        const containers = visit(fullName.split('.').slice(0, -1).join('.'), language)
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        const name = fullName.split('.').pop()!
-        fullNameToSym.set(fullName, {
-            __typename: 'IntermediateSymbol',
-            containers,
-            name,
-            language,
-        })
-        return [...containers, name]
+        const parentSymbol = fullNameToSymbol.get(parentFullName)
+        let parentSymbolWithChildren = fullNameToSymbolWithChildren.get(parentFullName)
+        if (parentSymbolWithChildren) {
+            // Parent exists, add to parent
+            parentSymbolWithChildren.children.push(symbolWithChildren)
+        } else if (parentSymbol) {
+            // Create parent node and add current symbol to it
+            fullNameToSymbolWithChildren.set(parentFullName, { ...parentSymbol, children: [symbolWithChildren] })
+        } else {
+            // Parent doesn't exist, visit it to generate a placeholder hierarchy, then add current symbol to it
+            visit(parentFullName)
+            parentSymbolWithChildren = fullNameToSymbolWithChildren.get(parentFullName) // This should now exist
+            if (parentSymbolWithChildren) {
+                parentSymbolWithChildren.children.push(symbolWithChildren)
+            } else {
+                // This should never happen!!
+                logger.error('RepoRevisionSidebarSymbols: Failed to add symbol to parent', { fullName, parentFullName })
+            }
+        }
     }
 
     for (const symbol of symbols) {
-        visit(fullName(symbol), symbol.language)
+        visit(fullName(symbol))
     }
 
-    return sortBy([...fullNameToSym.entries()], ([fullName]) => fullName).map(([, symbol]) => symbol)
-}
-
-const fullName = (symbol: SymbolNodeFields | Sym): string => {
-    if ('containers' in symbol) {
-        return [...symbol.containers, symbol.name].join('.')
+    // Sort everything
+    for (const sym of fullNameToSymbolWithChildren.values()) {
+        sym.children.sort((a, b) => a.name.localeCompare(b.name))
     }
-    return `${symbol.containerName ? symbol.containerName + '.' : ''}${symbol.name}`
+    topLevelSymbols.sort((a, b) => a.name.localeCompare(b.name))
+
+    return topLevelSymbols
 }
 
-const padding = (symbol: Sym): React.CSSProperties => ({ paddingLeft: `${symbol.containers.length}rem` })
+const fullName = (symbol: SymbolNodeFields | SymbolPlaceholder): string =>
+    `${symbol.__typename === 'Symbol' && symbol.containerName ? symbol.containerName + '.' : ''}${symbol.name}`

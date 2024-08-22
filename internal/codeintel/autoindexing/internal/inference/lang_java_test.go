@@ -2,89 +2,88 @@ package inference
 
 import (
 	"testing"
-
-	"github.com/sourcegraph/sourcegraph/internal/codeintel/autoindexing/internal/inference/libs"
-	"github.com/sourcegraph/sourcegraph/lib/codeintel/autoindex/config"
 )
 
 func TestJavaGenerator(t *testing.T) {
-	expectedIndexerImage, _ := libs.DefaultIndexerForLang("java")
-
 	testGenerators(t,
 		generatorTestCase{
-			description: "java project with lsif-java.json",
+			description: "JVM project with lsif-java.json",
 			repositoryContents: map[string]string{
 				"lsif-java.json": "",
 				"src/java/com/sourcegraph/codeintel/dumb.java": "",
 				"src/java/com/sourcegraph/codeintel/fun.scala": "",
 			},
-			expected: []config.IndexJob{
-				{
-					Steps:       nil,
-					LocalSteps:  nil,
-					Root:        "",
-					Indexer:     expectedIndexerImage,
-					IndexerArgs: []string{"scip-java", "index", "--build-tool=scip"},
-					Outfile:     "index.scip",
-				},
+		},
+		generatorTestCase{
+			description: "JVM project with Gradle",
+			repositoryContents: map[string]string{
+				"build.gradle": "",
+				"src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"src/java/com/sourcegraph/codeintel/fun.scala": "",
 			},
 		},
 		generatorTestCase{
-			description: "java project without lsif-java.json (no match)",
+			description: "JVM project with SBT",
+			repositoryContents: map[string]string{
+				"build.sbt": "",
+				"src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"src/java/com/sourcegraph/codeintel/fun.scala": "",
+			},
+		},
+		generatorTestCase{
+			description: "JVM project with Maven",
+			repositoryContents: map[string]string{
+				"pom.xml": "",
+				"src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"src/java/com/sourcegraph/codeintel/fun.scala": "",
+			},
+		},
+		generatorTestCase{
+			description: "JVM project without build file",
 			repositoryContents: map[string]string{
 				"src/java/com/sourcegraph/codeintel/dumb.java": "",
 				"src/java/com/sourcegraph/codeintel/fun.scala": "",
 			},
-			expected: []config.IndexJob{},
 		},
-	)
-}
-
-func TestJavaHinter(t *testing.T) {
-	expectedIndexerImage := "sourcegraph/scip-java@sha256:eb3996bdc8ab3a56600e7d647bc1ef72f3db8cfffc2026550095a0af7bb762bd"
-
-	testHinters(t,
-		hinterTestCase{
-			description: "basic hints",
+		generatorTestCase{
+			description: "JVM project with Maven build file but no sources",
 			repositoryContents: map[string]string{
-				"build.gradle":               "",
-				"kt/build.gradle.kts":        "",
-				"maven/pom.xml":              "",
-				"subdir/src/java/App.java":   "",
-				"subdir/src/kotlin/App.kt":   "",
-				"subdir/src/scala/App.scala": "",
+				"pom.xml": "",
 			},
-			expected: []config.IndexJobHint{
-				{
-					Root:           "",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceProjectStructureSupported,
-				},
-				{
-					Root:           "kt",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceProjectStructureSupported,
-				},
-				{
-					Root:           "maven",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceProjectStructureSupported,
-				},
-				{
-					Root:           "subdir/src/java",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceLanguageSupport,
-				},
-				{
-					Root:           "subdir/src/kotlin",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceLanguageSupport,
-				},
-				{
-					Root:           "subdir/src/scala",
-					Indexer:        expectedIndexerImage,
-					HintConfidence: config.HintConfidenceLanguageSupport,
-				},
+		},
+		generatorTestCase{
+			description: "JVM project with Gradle build file but no sources",
+			repositoryContents: map[string]string{
+				"build.gradle": "",
+			},
+		},
+		generatorTestCase{
+			description: "JVM project with SBT build file but no sources",
+			repositoryContents: map[string]string{
+				"build.sbt": "",
+			},
+		},
+		generatorTestCase{
+			description: "JVM project with Mill build file but no sources",
+			repositoryContents: map[string]string{
+				"build.sc": "",
+			},
+		},
+		generatorTestCase{
+			description: "Nested JVM project with top-level build file",
+			repositoryContents: map[string]string{
+				"build.sbt": "",
+				"my-module/src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"my-module/pom.xml": "",
+			},
+		},
+		generatorTestCase{
+			description: "Nested JVM project WITHOUT top-level build file",
+			repositoryContents: map[string]string{
+				"my-module/src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"my-module/pom.xml": "",
+				"our-module/src/java/com/sourcegraph/codeintel/dumb.java": "",
+				"our-module/pom.xml": "",
 			},
 		},
 	)
